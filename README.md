@@ -174,4 +174,223 @@ En la interfaz: selecciona **Socket.IO** o **STOMP**, define `author` y `name`, 
 ---
 
 ## 📄 Licencia
-MIT (o la definida por el curso/equipo).
+MIT (o la definida por el curso/equipo).  
+
+--- 
+# REPORTE DE LABORATORIO
+    - Laura Alejandra Venegas Piraban
+    - Sergio Alejandro Idarraga Torres
+---
+
+## Descripción del Proyecto
+
+Aplicación fullstack para gestión de BluePrints con autenticación JWT (OAuth 2.0) y
+colaboración en tiempo real via WebSockets. El backend corre con Spring Boot 3 y Java 21
+como Resource Server seguro, y el frontend está construido con React 18 + Redux Toolkit.
+
+---
+# Video
+El video se encuentra en /assets/LAB7-ARSW.mp4.
+---
+
+## Repositorios
+
+| Capa | Repositorio |
+|------|-------------|
+| Backend | https://github.com/ALEJO21005/Lab_P2_BluePrints_Java21_API_Security_JWT.git |
+| Frontend | https://github.com/ALEJO21005/LAB6_ARSW.git |
+
+---
+
+## Tecnologías
+
+| Capa | Stack |
+|------|-------|
+| Backend | Spring Boot 3, Java 21, PostgreSQL |
+| Frontend | React 18 (Vite), Redux Toolkit, React Router |
+| Tiempo real | STOMP (@stomp/stompjs) + SockJS |
+| HTTP | Axios con interceptores JWT |
+| Testing | Vitest + Testing Library |
+
+---
+
+## Setup
+
+### Requisitos
+
+- Java 21 (JDK)
+- Maven 3.9+
+- PostgreSQL (la config está en el pom.xml)
+- Node.js 18+
+- Git
+
+### Backend
+```bash
+git clone https://github.com/ALEJO21005/Lab_P2_BluePrints_Java21_API_Security_JWT.git
+cd Lab_P2_BluePrints_Java21_API_Security_JWT
+
+mvn spring-boot:run
+
+# Verificar que esté corriendo
+curl http://localhost:8080/actuator/health
+```
+
+### Frontend
+```bash
+git clone https://github.com/ALEJO21005/LAB6_ARSW.git
+cd LAB6_ARSW
+
+npm install
+npm run dev       # Desarrollo en puerto 5173
+npm run build     # Build de producción
+npm test          # Pruebas con Vitest
+npm run test:ui   # UI de pruebas
+```
+
+### Variables de entorno (.env)
+```env
+VITE_API_BASE_URL=http://localhost:8080
+VITE_WS_BASE_URL=http://localhost:8080/ws
+VITE_USE_MOCK=false    # true = mock local, false = API real
+```
+
+---
+
+## Autenticación
+
+**POST** /auth/login — devuelve el token JWT necesario para todo lo demás.
+
+Credenciales de prueba:
+- Usuario: student
+- Contraseña: student123
+
+El frontend maneja el token automáticamente a través de interceptores en Axios.
+Si el servidor responde con 401, redirige al login sin intervención manual.
+
+---
+
+## Endpoints
+
+### REST (CRUD)
+
+Todos requieren el header:
+```
+Authorization: Bearer <token>
+```
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | /api/v1/blueprints | Lista general |
+| GET | /api/v1/blueprints/{author} | Blueprints por autor |
+| GET | /api/v1/blueprints/{author}/{name} | Blueprint específico |
+| POST | /api/v1/blueprints | Crear blueprint |
+| PUT | /api/v1/blueprints/{author}/{name}/points | Agregar punto |
+| DELETE | /api/v1/blueprints/{author}/{name} | Eliminar blueprint |
+| DELETE | /api/v1/blueprints/{author} | Eliminar todos los de un autor |
+| DELETE | /api/v1/blueprints/{author}/{name}/points/{x}/{y} | Eliminar punto |
+
+Body para POST:
+```json
+{ "name": "Mi Blueprint" }
+```
+
+### WebSocket (tiempo real)
+
+Conexión: ws://localhost:8080/ws (SockJS + STOMP)
+
+Tópicos:
+- /topic/blueprints — cambios globales
+- /topic/blueprints/{author}/{name} — escucha un blueprint puntual
+
+Al cambiar de blueprint activo en el frontend, la suscripción cambia automáticamente.
+
+### Swagger
+
+Disponible en http://localhost:8080/swagger-ui/index.html.
+
+Para probar endpoints protegidos: botón "Authorize" → pegar Bearer <token>.
+
+---
+
+## Cómo se integran CRUD y tiempo real
+
+Las operaciones CRUD se despachan como async thunks desde Redux y llegan al backend
+via Axios. Cuando el backend procesa un cambio, emite una notificación por WebSocket
+a todos los suscriptores del tópico correspondiente. El frontend actualiza el estado
+global sin necesidad de hacer un nuevo fetch.
+```
+# Flujo REST
+Client → POST /auth/login → JWT Token
+Client → /api/v1/blueprints (Bearer token) → Data
+
+# Flujo WebSocket
+Client → Connect /ws → STOMP Session
+Service Layer → Operación → Notificación WebSocket
+Todos los suscriptores → Reciben la actualización en tiempo real
+```
+
+---
+
+## Por qué STOMP y no Socket.IO
+
+La razón principal es que Spring Boot tiene soporte nativo para STOMP. Eso nos evitó
+configuración extra y nos dio pub/sub con tópicos, autenticación JWT directa en los
+headers de conexión y reconexión automática sin código adicional. Socket.IO requiere
+más trabajo de integración del lado del servidor para lograr lo mismo.
+
+---
+
+## Estructura del Proyecto
+
+### Backend
+```
+src/main/java/co/edu/eci/blueprints/
+├── auth/
+│   └── AuthController.java                    # Login y emisión de JWT
+├── security/
+│   ├── SecurityConfig.java                    # Configuración de seguridad
+│   ├── InMemoryUserService.java               # Usuarios de prueba
+│   ├── JwtKeyProvider.java                    # Generación de llaves RSA
+│   └── RsaKeyProperties.java                  # Config JWT
+├── api/
+│   └── BlueprintController.java               # Endpoints REST protegidos
+├── controllers/
+│   └── BlueprintWebSocketController.java      # Handlers de WebSocket
+├── services/
+│   └── BlueprintsServices.java                # Lógica de negocio
+├── persistence/
+│   ├── BlueprintJpaRepository.java            # Repositorio JPA
+│   └── BlueprintPersistence.java              # Interface de persistencia
+├── dto/
+│   ├── request/ & response/                   # DTOs para REST
+│   └── websocket/                             # DTOs para WebSocket
+├── config/
+│   ├── WebSocketConfig.java                   # Config WebSocket/STOMP
+│   └── OpenApiConfig.java                     # Config Swagger
+├── filters/
+│   └── BlueprintsFilter.java                  # Filtros de procesamiento
+└── model/
+    ├── Blueprint.java                         # Entidad JPA principal
+    └── Point.java                             # Coordenadas
+```
+
+### Frontend
+```
+src/
+├── components/
+│   ├── WebSocketManager.jsx      # Manager de conexión WebSocket/STOMP
+│   ├── BlueprintCanvas.jsx       # Canvas interactivo para dibujo
+│   ├── BlueprintForm.jsx         # Formulario CRUD de creación
+│   └── PrivateRoute.jsx          # Rutas protegidas con JWT
+├── pages/
+│   ├── BlueprintsPage.jsx        # Página principal con CRUD completo
+│   └── BlueprintDetailPage.jsx   # Vista detalle individual
+├── features/blueprints/
+│   └── blueprintsSlice.js        # Redux: acciones async + WebSocket state
+└── services/
+    ├── websocketService.js       # Servicio STOMP WebSocket
+    ├── blueprintsService.js      # Switch Mock/Real API
+    ├── apimock.js                # Datos simulados
+    └── apiclient-service.js      # Servicio API real
+```
+
